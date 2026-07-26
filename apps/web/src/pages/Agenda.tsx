@@ -1,47 +1,110 @@
 import { useEffect, useState } from 'react'
-import { Plus } from 'lucide-react'
+import { ArrowLeft, Plus, Settings2 } from 'lucide-react'
 import { api } from '../lib/api'
-import { Appointment, ClientListItem } from '../types'
+import { Appointment, BusinessHour, ClientListItem } from '../types'
 import { Button } from '../components/ui/Button'
-import { Badge, Card } from '../components/ui/Card'
+import { Card } from '../components/ui/Card'
 import { Modal } from '../components/ui/Modal'
 import { AppointmentForm } from '../components/agenda/AppointmentForm'
+import { MonthView } from '../components/agenda/MonthView'
+import { DayView } from '../components/agenda/DayView'
+import { BusinessHoursSettings } from '../components/agenda/BusinessHoursSettings'
 
-const STATUS_COLOR: Record<string, 'lime' | 'teal' | 'red' | 'gray'> = {
-  programada: 'teal', completada: 'lime', cancelada: 'red',
+function monthRange(year: number, month: number) {
+  const from = new Date(year, month, 1)
+  const to = new Date(year, month + 1, 0, 23, 59, 59)
+  return { from: from.toISOString(), to: to.toISOString() }
 }
 
-function groupByDay(appointments: Appointment[]): [string, Appointment[]][] {
-  const groups = new Map<string, Appointment[]>()
-  for (const a of appointments) {
-    const day = new Date(a.start_at).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })
-    if (!groups.has(day)) groups.set(day, [])
-    groups.get(day)!.push(a)
-  }
-  return Array.from(groups.entries())
+function dayRange(date: Date) {
+  const from = new Date(date); from.setHours(0, 0, 0, 0)
+  const to = new Date(date); to.setHours(23, 59, 59, 999)
+  return { from: from.toISOString(), to: to.toISOString() }
 }
 
 export function Agenda() {
-  const [appointments, setAppointments] = useState<Appointment[]>([])
-  const [clients, setClients] = useState<ClientListItem[]>([])
-  const [editing, setEditing] = useState<Appointment | 'new' | null>(null)
-  const [loading, setLoading] = useState(true)
+  const today = new Date()
+  const [view, setView] = useState<'month' | 'day'>('month')
+  const [cursor, setCursor] = useState({ year: today.getFullYear(), month: today.getMonth() })
+  const [selectedDate, setSelectedDate] = useState<Date>(today)
 
-  async function load() {
-    setLoading(true)
-    const [appts, clientsData] = await Promise.all([api.get('/api/agenda'), api.get('/api/clients')])
-    setAppointments(appts)
-    setClients(clientsData)
-    setLoading(false)
+  const [monthAppointments, setMonthAppointments] = useState<Appointment[]>([])
+  const [dayAppointments, setDayAppointments] = useState<Appointment[]>([])
+  const [businessHours, setBusinessHours] = useState<BusinessHour[]>([])
+  const [slotMinutes, setSlotMinutes] = useState(30)
+  const [clients, setClients] = useState<ClientListItem[]>([])
+
+  const [editing, setEditing] = useState<Appointment | 'new' | null>(null)
+  const [presetTimes, setPresetTimes] = useState<{ start_at: string; end_at: string } | null>(null)
+  const [showSettings, setShowSettings] = useState(false)
+
+  async function loadMonthAppointments() {
+    const { from, to } = monthRange(cursor.year, cursor.month)
+    setMonthAppointments(await api.get(`/api/agenda?from=${from}&to=${to}`))
   }
 
-  useEffect(() => { load() }, [])
+  async function loadDayAppointments() {
+    const { from, to } = dayRange(selectedDate)
+    setDayAppointments(await api.get(`/api/agenda?from=${from}&to=${to}`))
+  }
+
+  async function loadStaticData() {
+    const [hours, config, clientsData] = await Promise.all([
+      api.get('/api/agenda/business-hours'),
+      api.get('/api/agenda/config'),
+      api.get('/api/clients'),
+    ])
+    setBusinessHours(hours)
+    setSlotMinutes(config.slot_duration_minutes)
+    setClients(clientsData)
+  }
+
+  useEffect(() => { loadStaticData() }, [])
+  useEffect(() => { loadMonthAppointments() }, [cursor])
+  useEffect(() => { if (view === 'day') loadDayAppointments() }, [view, selectedDate])
+
+  function goToDay(date: Date) {
+    setSelectedDate(date)
+    setView('day')
+  }
+
+  function navigateMonth(direction: -1 | 1) {
+    setCursor(prev => {
+      const next = new Date(prev.year, prev.month + direction, 1)
+      return { year: next.getFullYear(), month: next.getMonth() }
+    })
+  }
+
+  function navigateDay(direction: -1 | 1) {
+    const next = new Date(selectedDate)
+    next.setDate(next.getDate() + direction)
+    setSelectedDate(next)
+    if (next.getMonth() !== cursor.month || next.getFullYear() !== cursor.year) {
+      setCursor({ year: next.getFullYear(), month: next.getMonth() })
+    }
+  }
+
+  function openCreateAt(start: Date, end: Date) {
+    setPresetTimes({ start_at: start.toISOString(), end_at: end.toISOString() })
+    setEditing('new')
+  }
+
+  function openCreateAnyway() {
+    setPresetTimes(null)
+    setEditing('new')
+  }
+
+  async function refreshAfterChange() {
+    await loadMonthAppointments()
+    if (view === 'day') await loadDayAppointments()
+  }
 
   async function handleSubmit(values: any) {
     if (editing === 'new') await api.post('/api/agenda', values)
     else await api.put(`/api/agenda/${(editing as Appointment).id}`, values)
     setEditing(null)
-    await load()
+    setPresetTimes(null)
+    await refreshAfterChange()
   }
 
   async function handleDelete() {
@@ -49,66 +112,69 @@ export function Agenda() {
     if (!confirm('¿Eliminar esta cita?')) return
     await api.delete(`/api/agenda/${editing.id}`)
     setEditing(null)
-    await load()
+    await refreshAfterChange()
   }
 
-  const groups = groupByDay(appointments)
+  const hoursForSelectedDay = businessHours.filter(h => h.day_of_week === selectedDate.getDay())
 
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-navy-50">Agenda</h1>
-          <p className="text-sm text-navy-400">Citas y reuniones.</p>
+          {view === 'day' ? (
+            <button onClick={() => setView('month')} className="flex items-center gap-2 text-sm text-navy-400 hover:text-navy-100">
+              <ArrowLeft size={16} /> Volver al mes
+            </button>
+          ) : (
+            <div>
+              <h1 className="text-xl font-semibold text-navy-50">Agenda</h1>
+              <p className="text-sm text-navy-400">Vista mensual — pincha un día para ver sus citas.</p>
+            </div>
+          )}
         </div>
-        <Button onClick={() => setEditing('new')}>
-          <Plus size={16} /> Nueva cita
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={() => setShowSettings(true)}>
+            <Settings2 size={16} /> Horario de apertura
+          </Button>
+          <Button onClick={openCreateAnyway}>
+            <Plus size={16} /> Nueva cita
+          </Button>
+        </div>
       </div>
 
-      {loading ? (
-        <p className="text-navy-400">Cargando...</p>
-      ) : groups.length === 0 ? (
-        <Card className="text-center text-navy-400">No hay ninguna cita programada.</Card>
-      ) : (
-        <div className="space-y-6">
-          {groups.map(([day, items]) => (
-            <div key={day}>
-              <h2 className="mb-2 text-sm font-semibold capitalize text-navy-300">{day}</h2>
-              <div className="space-y-2">
-                {items.map(a => (
-                  <Card key={a.id} className="cursor-pointer hover:border-lime-500/50" >
-                    <div onClick={() => setEditing(a)} className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium text-navy-50">{a.title}</p>
-                        <p className="text-sm text-navy-400">
-                          {new Date(a.start_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
-                          {' – '}
-                          {new Date(a.end_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
-                          {a.client_nombre ? ` · ${a.client_nombre}` : ''}
-                          {a.location ? ` · ${a.location}` : ''}
-                        </p>
-                      </div>
-                      <Badge color={STATUS_COLOR[a.status]}>{a.status}</Badge>
-                    </div>
-                  </Card>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      <Card>
+        {view === 'month' ? (
+          <MonthView
+            year={cursor.year} month={cursor.month} appointments={monthAppointments}
+            onSelectDay={goToDay} onNavigate={navigateMonth}
+          />
+        ) : (
+          <DayView
+            date={selectedDate} appointments={dayAppointments} hoursForDay={hoursForSelectedDay}
+            slotMinutes={slotMinutes} onNavigate={navigateDay}
+            onCreateAt={openCreateAt} onSelectAppointment={setEditing} onCreateAnyway={openCreateAnyway}
+          />
+        )}
+      </Card>
 
-      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing === 'new' ? 'Nueva cita' : 'Editar cita'}>
+      <Modal
+        open={!!editing}
+        onClose={() => { setEditing(null); setPresetTimes(null) }}
+        title={editing === 'new' ? 'Nueva cita' : 'Editar cita'}
+      >
         {editing && (
           <AppointmentForm
-            initial={editing === 'new' ? undefined : editing}
+            initial={editing === 'new' ? (presetTimes ?? undefined) : editing}
             clients={clients}
             onSubmit={handleSubmit}
-            onCancel={() => setEditing(null)}
+            onCancel={() => { setEditing(null); setPresetTimes(null) }}
             onDelete={editing !== 'new' ? handleDelete : undefined}
           />
         )}
+      </Modal>
+
+      <Modal open={showSettings} onClose={() => setShowSettings(false)} title="Horario de apertura" wide>
+        <BusinessHoursSettings onSaved={async () => { setShowSettings(false); await loadStaticData() }} />
       </Modal>
     </div>
   )

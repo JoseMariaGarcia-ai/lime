@@ -5,11 +5,10 @@ import { encryptSecretOrNull, decryptSecret } from '../lib/crypto'
 const router = Router()
 
 const LIST_COLUMNS = `
-  id, nombre, apellidos, empresa, telefono, email, whatsapp_provider, created_at, updated_at,
+  id, nombre, apellidos, empresa, telefono, email, created_at, updated_at,
   (n8n_api_key_enc IS NOT NULL) AS has_n8n_key,
   (openrouter_api_key_enc IS NOT NULL) AS has_openrouter_key,
-  (claude_api_key_enc IS NOT NULL) AS has_claude_key,
-  (ycloud_api_key_enc IS NOT NULL) AS has_ycloud_key
+  (claude_api_key_enc IS NOT NULL) AS has_claude_key
 `
 
 // GET /api/clients — listado sin las claves de API en claro (solo si están
@@ -28,11 +27,9 @@ function decryptClient(row: any) {
     n8n_api_key: decryptSecret(row.n8n_api_key_enc),
     openrouter_api_key: decryptSecret(row.openrouter_api_key_enc),
     claude_api_key: decryptSecret(row.claude_api_key_enc),
-    ycloud_api_key: decryptSecret(row.ycloud_api_key_enc),
     n8n_api_key_enc: undefined,
     openrouter_api_key_enc: undefined,
     claude_api_key_enc: undefined,
-    ycloud_api_key_enc: undefined,
   }
 }
 
@@ -57,15 +54,13 @@ router.post('/', async (req, res) => {
     const row = await queryOne(
       `INSERT INTO clients (
         nombre, apellidos, empresa, telefono, email, notas,
-        n8n_url, n8n_api_key_enc, openrouter_api_key_enc, claude_api_key_enc,
-        ycloud_api_key_enc, ycloud_wa_number, whatsapp_provider, custom_fields
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+        n8n_url, n8n_api_key_enc, openrouter_api_key_enc, claude_api_key_enc, custom_fields
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
       RETURNING *`,
       [
         b.nombre, b.apellidos ?? null, b.empresa ?? null, b.telefono ?? null, b.email ?? null, b.notas ?? null,
         b.n8n_url ?? null, encryptSecretOrNull(b.n8n_api_key), encryptSecretOrNull(b.openrouter_api_key),
-        encryptSecretOrNull(b.claude_api_key), encryptSecretOrNull(b.ycloud_api_key), b.ycloud_wa_number ?? null,
-        b.whatsapp_provider ?? 'ycloud', JSON.stringify(b.custom_fields ?? {}),
+        encryptSecretOrNull(b.claude_api_key), JSON.stringify(b.custom_fields ?? {}),
       ]
     )
 
@@ -102,9 +97,8 @@ router.put('/:id', async (req, res) => {
       `UPDATE clients SET
         nombre = $1, apellidos = $2, empresa = $3, telefono = $4, email = $5, notas = $6,
         n8n_url = $7, n8n_api_key_enc = $8, openrouter_api_key_enc = $9, claude_api_key_enc = $10,
-        ycloud_api_key_enc = $11, ycloud_wa_number = $12, whatsapp_provider = $13, custom_fields = $14,
-        updated_at = NOW()
-       WHERE id = $15 RETURNING *`,
+        custom_fields = $11, updated_at = NOW()
+       WHERE id = $12 RETURNING *`,
       [
         b.nombre ?? existing.nombre, b.apellidos ?? existing.apellidos, b.empresa ?? existing.empresa,
         b.telefono ?? existing.telefono, b.email ?? existing.email, b.notas ?? existing.notas,
@@ -112,9 +106,6 @@ router.put('/:id', async (req, res) => {
         resolveKey(b.n8n_api_key, existing.n8n_api_key_enc),
         resolveKey(b.openrouter_api_key, existing.openrouter_api_key_enc),
         resolveKey(b.claude_api_key, existing.claude_api_key_enc),
-        resolveKey(b.ycloud_api_key, existing.ycloud_api_key_enc),
-        b.ycloud_wa_number ?? existing.ycloud_wa_number,
-        b.whatsapp_provider ?? existing.whatsapp_provider,
         JSON.stringify(b.custom_fields ?? existing.custom_fields ?? {}),
         req.params.id,
       ]

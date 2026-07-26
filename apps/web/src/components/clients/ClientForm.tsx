@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { Client, CustomFieldDef } from '../../types'
 import { Button } from '../ui/Button'
-import { Input, Label, Select, Textarea } from '../ui/Input'
+import { Input, Label, Textarea } from '../ui/Input'
 import { CustomFieldsValues } from '../ui/CustomFieldsEditor'
 
 type ClientFormValues = Partial<Client>
@@ -16,7 +16,7 @@ export function ClientForm({
   onCancel: () => void
   submitLabel?: string
 }) {
-  const [values, setValues] = useState<ClientFormValues>(initial ?? { whatsapp_provider: 'ycloud' })
+  const [values, setValues] = useState<ClientFormValues>(initial ?? {})
   const [customFields, setCustomFields] = useState<Record<string, string>>(initial?.custom_fields ?? {})
   const [extraApiKeys, setExtraApiKeys] = useState<{ name: string; value: string }[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -78,14 +78,6 @@ export function ClientForm({
       </div>
 
       <div className="border-t border-navy-700 pt-4">
-        <h3 className="mb-3 text-sm font-semibold text-navy-200">Proveedor de WhatsApp</h3>
-        <Select value={values.whatsapp_provider ?? 'ycloud'} onChange={e => set('whatsapp_provider', e.target.value as any)}>
-          <option value="ycloud">YCloud (API oficial)</option>
-          <option value="baileys">Baileys (WhatsApp Web, no oficial)</option>
-        </Select>
-      </div>
-
-      <div className="border-t border-navy-700 pt-4">
         <h3 className="mb-3 text-sm font-semibold text-navy-200">Claves de API y servidor</h3>
         <div className="space-y-3">
           <div>
@@ -103,14 +95,6 @@ export function ClientForm({
           <div>
             <Label>Clave de API de Claude</Label>
             <Input type="password" value={values.claude_api_key ?? ''} onChange={e => set('claude_api_key', e.target.value)} placeholder={initial ? '•••••••• (déjalo en blanco para no cambiarla)' : ''} />
-          </div>
-          <div>
-            <Label>Clave de API de YCloud</Label>
-            <Input type="password" value={values.ycloud_api_key ?? ''} onChange={e => set('ycloud_api_key', e.target.value)} placeholder={initial ? '•••••••• (déjalo en blanco para no cambiarla)' : ''} />
-          </div>
-          <div>
-            <Label>Número de WhatsApp (YCloud)</Label>
-            <Input value={values.ycloud_wa_number ?? ''} onChange={e => set('ycloud_wa_number', e.target.value)} placeholder="+34..." />
           </div>
         </div>
       </div>
