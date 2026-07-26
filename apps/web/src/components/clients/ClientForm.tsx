@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Plus, Trash2 } from 'lucide-react'
 import { Client, CustomFieldDef } from '../../types'
 import { Button } from '../ui/Button'
 import { Input, Label, Select, Textarea } from '../ui/Input'
@@ -17,11 +18,16 @@ export function ClientForm({
 }) {
   const [values, setValues] = useState<ClientFormValues>(initial ?? { whatsapp_provider: 'ycloud' })
   const [customFields, setCustomFields] = useState<Record<string, string>>(initial?.custom_fields ?? {})
+  const [extraApiKeys, setExtraApiKeys] = useState<{ name: string; value: string }[]>([])
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
   function set<K extends keyof ClientFormValues>(key: K, val: ClientFormValues[K]) {
     setValues(v => ({ ...v, [key]: val }))
+  }
+
+  function updateExtraKeyRow(i: number, field: 'name' | 'value', val: string) {
+    setExtraApiKeys(rows => rows.map((row, idx) => (idx === i ? { ...row, [field]: val } : row)))
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -30,7 +36,11 @@ export function ClientForm({
     setSaving(true)
     setError(null)
     try {
-      await onSubmit({ ...values, custom_fields: customFields })
+      await onSubmit({
+        ...values,
+        custom_fields: customFields,
+        extra_api_keys: extraApiKeys.filter(k => k.name.trim() && k.value.trim()),
+      })
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -104,6 +114,36 @@ export function ClientForm({
           </div>
         </div>
       </div>
+
+      {!initial && (
+        <div className="border-t border-navy-700 pt-4">
+          <h3 className="mb-3 text-sm font-semibold text-navy-200">Claves de API adicionales</h3>
+          <div className="space-y-2">
+            {extraApiKeys.map((row, i) => (
+              <div key={i} className="flex items-end gap-2">
+                <div className="flex-1">
+                  <Label>Nombre</Label>
+                  <Input value={row.name} onChange={e => updateExtraKeyRow(i, 'name', e.target.value)} placeholder="p. ej. Stripe" />
+                </div>
+                <div className="flex-1">
+                  <Label>Valor</Label>
+                  <Input value={row.value} onChange={e => updateExtraKeyRow(i, 'value', e.target.value)} />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setExtraApiKeys(rows => rows.filter((_, idx) => idx !== i))}
+                  className="mb-2 text-navy-500 hover:text-red-400"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ))}
+            <Button type="button" variant="secondary" onClick={() => setExtraApiKeys(rows => [...rows, { name: '', value: '' }])}>
+              <Plus size={16} /> Añadir clave
+            </Button>
+          </div>
+        </div>
+      )}
 
       {customFieldDefs.length > 0 && (
         <div className="border-t border-navy-700 pt-4">

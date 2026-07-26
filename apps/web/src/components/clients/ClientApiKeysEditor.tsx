@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { api } from '../../lib/api'
 import { ClientApiKey } from '../../types'
@@ -7,9 +7,10 @@ import { Input, Label } from '../ui/Input'
 
 // Claves de API adicionales de un cliente, con nombre libre — a diferencia
 // de los campos personalizados (definición global compartida por todos los
-// clientes), aquí cada clave se crea suelta para este cliente en concreto,
-// por eso cada acción llama directamente a la API en vez de acumular estado
-// en el formulario general del cliente.
+// clientes), aquí cada clave se crea suelta para este cliente en concreto.
+// El valor se muestra siempre en claro (es un registro de consulta, no un
+// secreto oculto), por eso cada acción llama directamente a la API en vez
+// de acumular estado en el formulario general del cliente.
 export function ClientApiKeysEditor({
   clientId, keys, onChange,
 }: { clientId: string; keys: ClientApiKey[]; onChange: () => Promise<void> | void }) {
@@ -18,6 +19,10 @@ export function ClientApiKeysEditor({
   const [adding, setAdding] = useState(false)
   const [editingValues, setEditingValues] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setEditingValues(Object.fromEntries(keys.map(k => [k.id, k.value ?? ''])))
+  }, [keys])
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault()
@@ -36,13 +41,12 @@ export function ClientApiKeysEditor({
     }
   }
 
-  async function handleUpdateValue(keyId: string) {
+  async function handleSave(keyId: string) {
     const newValue = editingValues[keyId]
     if (!newValue?.trim()) return
     setError(null)
     try {
       await api.put(`/api/clients/${clientId}/api-keys/${keyId}`, { value: newValue })
-      setEditingValues(v => ({ ...v, [keyId]: '' }))
       await onChange()
     } catch (err: any) {
       setError(err.message)
@@ -69,13 +73,11 @@ export function ClientApiKeysEditor({
               </div>
               <div className="mt-2 flex items-center gap-2">
                 <Input
-                  type="password"
-                  placeholder="•••••••• (déjalo en blanco para no cambiarla)"
                   value={editingValues[k.id] ?? ''}
                   onChange={e => setEditingValues(v => ({ ...v, [k.id]: e.target.value }))}
                 />
-                <Button type="button" variant="secondary" onClick={() => handleUpdateValue(k.id)}>
-                  Actualizar
+                <Button type="button" variant="secondary" onClick={() => handleSave(k.id)}>
+                  Guardar
                 </Button>
               </div>
             </li>
@@ -89,7 +91,7 @@ export function ClientApiKeysEditor({
         </div>
         <div className="flex-1 min-w-[140px]">
           <Label>Valor</Label>
-          <Input type="password" value={value} onChange={e => setValue(e.target.value)} />
+          <Input value={value} onChange={e => setValue(e.target.value)} />
         </div>
         <Button type="submit" variant="secondary" disabled={adding}>
           <Plus size={16} /> Añadir

@@ -1,11 +1,13 @@
 -- Claves de API adicionales por cliente, con nombre libre (a diferencia de
 -- las claves fijas de clients.*_api_key_enc, aquí el usuario define cuántas
--- quiera y cómo se llaman) — cifradas igual que el resto, ver lib/crypto.ts.
+-- quiera y cómo se llaman). Guardadas en texto plano a propósito (no
+-- cifradas como el resto): es un registro de consulta directa de las claves
+-- de cada cliente, deben ser legibles sin pasar por lib/crypto.ts.
 CREATE TABLE IF NOT EXISTS client_api_keys (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   client_id  UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
   name       TEXT NOT NULL,
-  value_enc  TEXT NOT NULL,
+  value      TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (client_id, name)
