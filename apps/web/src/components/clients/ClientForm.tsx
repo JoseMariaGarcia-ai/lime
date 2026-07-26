@@ -86,15 +86,15 @@ export function ClientForm({
           </div>
           <div>
             <Label>Clave de API de n8n</Label>
-            <Input type="password" value={values.n8n_api_key ?? ''} onChange={e => set('n8n_api_key', e.target.value)} placeholder={initial ? '•••••••• (déjalo en blanco para no cambiarla)' : ''} />
+            <Input value={values.n8n_api_key ?? ''} onChange={e => set('n8n_api_key', e.target.value)} />
           </div>
           <div>
             <Label>Clave de API de OpenRouter</Label>
-            <Input type="password" value={values.openrouter_api_key ?? ''} onChange={e => set('openrouter_api_key', e.target.value)} placeholder={initial ? '•••••••• (déjalo en blanco para no cambiarla)' : ''} />
+            <Input value={values.openrouter_api_key ?? ''} onChange={e => set('openrouter_api_key', e.target.value)} />
           </div>
           <div>
             <Label>Clave de API de Claude</Label>
-            <Input type="password" value={values.claude_api_key ?? ''} onChange={e => set('claude_api_key', e.target.value)} placeholder={initial ? '•••••••• (déjalo en blanco para no cambiarla)' : ''} />
+            <Input value={values.claude_api_key ?? ''} onChange={e => set('claude_api_key', e.target.value)} />
           </div>
         </div>
       </div>

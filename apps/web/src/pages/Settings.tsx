@@ -74,7 +74,7 @@ export function Settings() {
           </div>
           <div>
             <Label>Clave de API de YCloud</Label>
-            <Input type="password" value={settings.ycloud_api_key ?? ''} onChange={e => set('ycloud_api_key', e.target.value)} placeholder="•••••••• (déjalo en blanco para no cambiarla)" />
+            <Input value={settings.ycloud_api_key ?? ''} onChange={e => set('ycloud_api_key', e.target.value)} />
           </div>
           <div>
             <Label>Número de WhatsApp (YCloud)</Label>
@@ -82,11 +82,11 @@ export function Settings() {
           </div>
           <div>
             <Label>Clave de API de OpenRouter</Label>
-            <Input type="password" value={settings.openrouter_api_key ?? ''} onChange={e => set('openrouter_api_key', e.target.value)} placeholder="•••••••• (déjalo en blanco para no cambiarla)" />
+            <Input value={settings.openrouter_api_key ?? ''} onChange={e => set('openrouter_api_key', e.target.value)} />
           </div>
           <div>
             <Label>Clave de API de Claude</Label>
-            <Input type="password" value={settings.claude_api_key ?? ''} onChange={e => set('claude_api_key', e.target.value)} placeholder="•••••••• (déjalo en blanco para no cambiarla)" />
+            <Input value={settings.claude_api_key ?? ''} onChange={e => set('claude_api_key', e.target.value)} />
           </div>
           <div>
             <Label>URL del servidor n8n</Label>
@@ -94,7 +94,7 @@ export function Settings() {
           </div>
           <div>
             <Label>Clave de API de n8n</Label>
-            <Input type="password" value={settings.n8n_api_key ?? ''} onChange={e => set('n8n_api_key', e.target.value)} placeholder="•••••••• (déjalo en blanco para no cambiarla)" />
+            <Input value={settings.n8n_api_key ?? ''} onChange={e => set('n8n_api_key', e.target.value)} />
           </div>
 
           {customFieldDefs.length > 0 && (
