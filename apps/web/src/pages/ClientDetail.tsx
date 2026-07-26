@@ -6,6 +6,7 @@ import { Client, CustomFieldDef } from '../types'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { ClientForm } from '../components/clients/ClientForm'
+import { ClientApiKeysEditor } from '../components/clients/ClientApiKeysEditor'
 
 export function ClientDetail() {
   const { id } = useParams()
@@ -60,6 +61,11 @@ export function ClientDetail() {
           onCancel={() => navigate('/')}
           submitLabel="Guardar cambios"
         />
+      </Card>
+
+      <Card className="mt-6">
+        <h2 className="mb-4 text-sm font-semibold text-navy-200">Claves de API adicionales</h2>
+        <ClientApiKeysEditor clientId={client.id} keys={client.extra_api_keys} onChange={load} />
       </Card>
     </div>
   )

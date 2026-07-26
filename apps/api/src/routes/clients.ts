@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { query, queryOne } from '../lib/db'
-import { encryptSecretOrNull, decryptSecret } from '../lib/crypto'
+import { encryptSecret, encryptSecretOrNull, decryptSecret } from '../lib/crypto'
 
 const router = Router()
 
@@ -42,7 +42,16 @@ router.get('/:id', async (req, res) => {
   try {
     const row = await queryOne('SELECT * FROM clients WHERE id = $1', [req.params.id])
     if (!row) return res.status(404).json({ error: 'Cliente no encontrado' })
-    return res.json(decryptClient(row))
+    const extraKeys = await query(
+      'SELECT id, name, value_enc, created_at, updated_at FROM client_api_keys WHERE client_id = $1 ORDER BY created_at ASC',
+      [req.params.id]
+    )
+    return res.json({
+      ...decryptClient(row),
+      extra_api_keys: extraKeys.map((k: any) => ({
+        id: k.id, name: k.name, value: decryptSecret(k.value_enc), created_at: k.created_at, updated_at: k.updated_at,
+      })),
+    })
   } catch (err: any) { return res.status(500).json({ error: err.message }) }
 })
 
@@ -109,6 +118,56 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     await query('DELETE FROM clients WHERE id = $1', [req.params.id])
+    return res.status(204).send()
+  } catch (err: any) { return res.status(500).json({ error: err.message }) }
+})
+
+// --- Claves de API adicionales por cliente (nombre libre) ---
+
+router.post('/:id/api-keys', async (req, res) => {
+  try {
+    const { name, value } = req.body
+    if (!name?.trim()) return res.status(400).json({ error: 'El nombre de la clave es requerido' })
+    if (!value?.trim()) return res.status(400).json({ error: 'El valor de la clave es requerido' })
+    const row = await queryOne<any>(
+      `INSERT INTO client_api_keys (client_id, name, value_enc) VALUES ($1,$2,$3)
+       RETURNING id, name, created_at, updated_at`,
+      [req.params.id, name.trim(), encryptSecret(value)]
+    )
+    return res.status(201).json({ ...row, value })
+  } catch (err: any) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Ya existe una clave con ese nombre para este cliente' })
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+// PUT .../api-keys/:keyId — el nombre y el valor son opcionales de forma
+// independiente: renombrar sin reenviar el valor conserva el secreto cifrado
+// ya guardado (mismo criterio que resolveKey() más arriba).
+router.put('/:id/api-keys/:keyId', async (req, res) => {
+  try {
+    const existing = await queryOne<any>(
+      'SELECT * FROM client_api_keys WHERE id = $1 AND client_id = $2', [req.params.keyId, req.params.id]
+    )
+    if (!existing) return res.status(404).json({ error: 'Clave no encontrada' })
+    const { name, value } = req.body
+    const nextName = name?.trim() || existing.name
+    const nextValueEnc = value?.trim() ? encryptSecret(value) : existing.value_enc
+    const row = await queryOne<any>(
+      `UPDATE client_api_keys SET name = $1, value_enc = $2, updated_at = NOW() WHERE id = $3
+       RETURNING id, name, created_at, updated_at`,
+      [nextName, nextValueEnc, req.params.keyId]
+    )
+    return res.json({ ...row, value: value?.trim() ? value : decryptSecret(existing.value_enc) })
+  } catch (err: any) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Ya existe una clave con ese nombre para este cliente' })
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+router.delete('/:id/api-keys/:keyId', async (req, res) => {
+  try {
+    await query('DELETE FROM client_api_keys WHERE id = $1 AND client_id = $2', [req.params.keyId, req.params.id])
     return res.status(204).send()
   } catch (err: any) { return res.status(500).json({ error: err.message }) }
 })

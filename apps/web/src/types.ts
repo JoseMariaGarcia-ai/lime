@@ -19,6 +19,14 @@ export interface ClientListItem {
   has_ycloud_key: boolean
 }
 
+export interface ClientApiKey {
+  id: string
+  name: string
+  value: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface Client extends ClientListItem {
   notas: string | null
   n8n_url: string | null
@@ -28,6 +36,7 @@ export interface Client extends ClientListItem {
   ycloud_api_key: string | null
   ycloud_wa_number: string | null
   custom_fields: Record<string, string>
+  extra_api_keys: ClientApiKey[]
 }
 
 export interface Appointment {
