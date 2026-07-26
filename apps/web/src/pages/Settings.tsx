@@ -3,8 +3,9 @@ import { api } from '../lib/api'
 import { AccountSettings, CustomFieldDef } from '../types'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
-import { Input, Label } from '../components/ui/Input'
+import { Input, Label, Select } from '../components/ui/Input'
 import { CustomFieldDefsManager, CustomFieldsValues } from '../components/ui/CustomFieldsEditor'
+import { ConnectionPanel } from '../components/whatsapp/ConnectionPanel'
 
 export function Settings() {
   const [settings, setSettings] = useState<AccountSettings | null>(null)
@@ -58,7 +59,19 @@ export function Settings() {
       </div>
 
       <Card>
+        <h2 className="mb-3 text-sm font-semibold text-navy-200">Conexión de WhatsApp</h2>
+        <ConnectionPanel />
+      </Card>
+
+      <Card>
         <form onSubmit={handleSave} className="space-y-4">
+          <div>
+            <Label>Proveedor de WhatsApp</Label>
+            <Select value={settings.whatsapp_provider} onChange={e => set('whatsapp_provider', e.target.value as any)}>
+              <option value="ycloud">YCloud (API oficial)</option>
+              <option value="baileys">Baileys (WhatsApp Web, no oficial)</option>
+            </Select>
+          </div>
           <div>
             <Label>Clave de API de YCloud</Label>
             <Input type="password" value={settings.ycloud_api_key ?? ''} onChange={e => set('ycloud_api_key', e.target.value)} placeholder="•••••••• (déjalo en blanco para no cambiarla)" />

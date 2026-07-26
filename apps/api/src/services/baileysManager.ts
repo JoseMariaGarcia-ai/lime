@@ -2,57 +2,52 @@ import fs from 'fs'
 import path from 'path'
 import QRCode from 'qrcode'
 import { query } from '../lib/db'
-import { recordInboundMessage } from '../lib/whatsappCore'
+import { findClientIdByPhone, recordInboundMessage } from '../lib/whatsappCore'
 
-// Gestor de sesiones de Baileys (WhatsApp Web no oficial) — una conexión por
-// cliente, guardada en memoria de este proceso (Map) y reflejada en la tabla
-// whatsapp_connections para que el frontend pueda consultar el estado/QR sin
-// mantener un socket abierto.
+// Gestor de la sesión de Baileys (WhatsApp Web no oficial) — ÚNICA para
+// toda la cuenta de Lime (no una por cliente): Lime opera un solo WhatsApp
+// propio para hablar con los contactos de todos sus clientes, elegido en
+// Configuración de cuenta (account_settings.whatsapp_provider).
 //
 // ⚠️ Las credenciales de sesión (useMultiFileAuthState) se guardan en disco
-// bajo data/baileys/<clientId>/ — en Railway hace falta un volumen
-// persistente en esa ruta o la sesión se pierde en cada redeploy (ver
-// README.md de este proyecto).
-const sockets = new Map<string, any>()
+// bajo data/baileys/account/ — en Railway hace falta un volumen persistente
+// en esa ruta o la sesión se pierde en cada redeploy (ver README.md).
+let currentSocket: any = null
 
-// Import dinámico: @whiskeysockets/baileys es CommonJS con muchas
-// dependencias nativas opcionales — cargarlo perezosamente evita que un
-// fallo de una dependencia opcional (p.ej. audio) tumbe el arranque de todo
-// el backend si el módulo de WhatsApp no llega a usarse todavía.
 async function loadBaileys() {
   return await import('@whiskeysockets/baileys')
 }
 
-function dataDir(clientId: string): string {
-  const dir = path.resolve(__dirname, '../../data/baileys', clientId)
+function dataDir(): string {
+  const dir = path.resolve(__dirname, '../../data/baileys/account')
   fs.mkdirSync(dir, { recursive: true })
   return dir
 }
 
 async function upsertConnectionStatus(
-  clientId: string, status: 'desconectado' | 'conectando' | 'conectado' | 'error', qrCode: string | null, lastError: string | null
+  status: 'desconectado' | 'conectando' | 'conectado' | 'error', qrCode: string | null, lastError: string | null
 ) {
   await query(
-    `INSERT INTO whatsapp_connections (client_id, provider, status, qr_code, last_error)
-     VALUES ($1,'baileys',$2,$3,$4)
-     ON CONFLICT (client_id, provider) DO UPDATE SET
-       status = $2, qr_code = $3, last_error = $4, updated_at = NOW()`,
-    [clientId, status, qrCode, lastError]
+    `INSERT INTO whatsapp_connections (provider, status, qr_code, last_error)
+     VALUES ('baileys',$1,$2,$3)
+     ON CONFLICT (provider) DO UPDATE SET
+       status = $1, qr_code = $2, last_error = $3, updated_at = NOW()`,
+    [status, qrCode, lastError]
   )
 }
 
-export function isConnected(clientId: string): boolean {
-  return sockets.has(clientId)
+export function isConnected(): boolean {
+  return !!currentSocket
 }
 
-export async function connectClientBaileys(clientId: string): Promise<void> {
-  if (sockets.has(clientId)) return
+export async function connectAccountBaileys(): Promise<void> {
+  if (currentSocket) return
 
   const baileys = await loadBaileys()
   const makeWASocket = baileys.default
   const { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = baileys
 
-  const dir = dataDir(clientId)
+  const dir = dataDir()
   const { state, saveCreds } = await useMultiFileAuthState(dir)
   const { version } = await fetchLatestBaileysVersion()
 
@@ -62,8 +57,8 @@ export async function connectClientBaileys(clientId: string): Promise<void> {
     printQRInTerminal: false,
     browser: ['Lime AI Studio', 'Chrome', '1.0.0'],
   })
-  sockets.set(clientId, sock)
-  await upsertConnectionStatus(clientId, 'conectando', null, null)
+  currentSocket = sock
+  await upsertConnectionStatus('conectando', null, null)
 
   sock.ev.on('creds.update', saveCreds)
 
@@ -71,22 +66,22 @@ export async function connectClientBaileys(clientId: string): Promise<void> {
     const { connection, lastDisconnect, qr } = update
     if (qr) {
       const qrDataUrl = await QRCode.toDataURL(qr)
-      await upsertConnectionStatus(clientId, 'conectando', qrDataUrl, null)
+      await upsertConnectionStatus('conectando', qrDataUrl, null)
     }
     if (connection === 'open') {
-      await upsertConnectionStatus(clientId, 'conectado', null, null)
+      await upsertConnectionStatus('conectado', null, null)
     }
     if (connection === 'close') {
-      sockets.delete(clientId)
+      currentSocket = null
       const statusCode = (lastDisconnect?.error as any)?.output?.statusCode
       const loggedOut = statusCode === DisconnectReason.loggedOut
       if (loggedOut) {
         fs.rmSync(dir, { recursive: true, force: true })
-        await upsertConnectionStatus(clientId, 'desconectado', null, null)
+        await upsertConnectionStatus('desconectado', null, null)
       } else {
-        await upsertConnectionStatus(clientId, 'error', null, 'Conexión perdida — reintentando automáticamente')
-        connectClientBaileys(clientId).catch(err =>
-          console.error(`[baileys] fallo al reconectar cliente ${clientId}:`, err.message))
+        await upsertConnectionStatus('error', null, 'Conexión perdida — reintentando automáticamente')
+        connectAccountBaileys().catch(err =>
+          console.error('[baileys] fallo al reconectar:', err.message))
       }
     }
   })
@@ -106,28 +101,27 @@ export async function connectClientBaileys(clientId: string): Promise<void> {
           msg.message.imageMessage?.caption ??
           msg.message.videoMessage?.caption ?? ''
         if (!text) continue
+        const clientId = await findClientIdByPhone(phone)
         await recordInboundMessage(clientId, phone, text, 'baileys', msg.key.id ?? null)
       } catch (err: any) {
-        console.error(`[baileys] fallo procesando mensaje entrante de cliente ${clientId}:`, err.message)
+        console.error('[baileys] fallo procesando mensaje entrante:', err.message)
       }
     }
   })
 }
 
-export async function disconnectClientBaileys(clientId: string): Promise<void> {
-  const sock = sockets.get(clientId)
-  if (sock) {
-    try { await sock.logout() } catch { /* ya podía estar desconectado */ }
-    sockets.delete(clientId)
+export async function disconnectAccountBaileys(): Promise<void> {
+  if (currentSocket) {
+    try { await currentSocket.logout() } catch { /* ya podía estar desconectado */ }
+    currentSocket = null
   }
-  fs.rmSync(dataDir(clientId), { recursive: true, force: true })
-  await upsertConnectionStatus(clientId, 'desconectado', null, null)
+  fs.rmSync(dataDir(), { recursive: true, force: true })
+  await upsertConnectionStatus('desconectado', null, null)
 }
 
-export async function sendViaBaileys(clientId: string, phone: string, body: string): Promise<string | null> {
-  const sock = sockets.get(clientId)
-  if (!sock) throw new Error('Este cliente no tiene una sesión de Baileys conectada — escanea el QR en WhatsApp primero')
+export async function sendViaBaileys(phone: string, body: string): Promise<string | null> {
+  if (!currentSocket) throw new Error('WhatsApp (Baileys) no está conectado — escanea el QR en Configuración primero')
   const jid = phone.includes('@') ? phone : `${phone.replace(/\D/g, '')}@s.whatsapp.net`
-  const result = await sock.sendMessage(jid, { text: body })
+  const result = await currentSocket.sendMessage(jid, { text: body })
   return result?.key?.id ?? null
 }

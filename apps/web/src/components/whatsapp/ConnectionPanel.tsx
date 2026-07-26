@@ -9,40 +9,39 @@ interface ConnectionInfo {
   baileys: { status: string; qr_code: string | null; last_error: string | null }
 }
 
-export function ConnectionPanel({ clientId }: { clientId: string }) {
+// Estado GLOBAL de la conexión de WhatsApp de la cuenta (no por cliente) —
+// el proveedor se elige una sola vez en Configuración.
+export function ConnectionPanel() {
   const [info, setInfo] = useState<ConnectionInfo | null>(null)
 
   async function load() {
-    const data = await api.get(`/api/whatsapp/connections/${clientId}`)
+    const data = await api.get('/api/whatsapp/connections')
     setInfo(data)
   }
 
   useEffect(() => {
     load()
-    // Cuando Baileys está "conectando" (esperando escaneo del QR o
-    // negociando), se refresca cada 3s para recoger el QR o el cambio a
-    // "conectado" sin que el usuario tenga que recargar la página.
     const interval = setInterval(() => {
       if (info?.baileys.status === 'conectando') load()
     }, 3000)
     return () => clearInterval(interval)
-  }, [clientId, info?.baileys.status])
+  }, [info?.baileys.status])
 
   if (!info) return null
 
   if (info.provider === 'ycloud') {
     return (
-      <div className="flex items-center gap-2 border-b border-navy-700 px-4 py-2 text-sm">
+      <div className="flex items-center gap-2 rounded-lg border border-navy-700 bg-navy-800/60 p-4 text-sm">
         <span className="text-navy-400">YCloud:</span>
         <Badge color={info.ycloud.configured ? 'lime' : 'red'}>
-          {info.ycloud.configured ? 'Configurado' : 'Falta configurar la clave/número en la ficha del cliente'}
+          {info.ycloud.configured ? 'Configurado' : 'Falta configurar la clave y el número más abajo'}
         </Badge>
       </div>
     )
   }
 
   return (
-    <div className="border-b border-navy-700 px-4 py-3 text-sm">
+    <div className="rounded-lg border border-navy-700 bg-navy-800/60 p-4 text-sm">
       <div className="flex items-center gap-2">
         <span className="text-navy-400">Baileys:</span>
         <Badge color={info.baileys.status === 'conectado' ? 'lime' : info.baileys.status === 'error' ? 'red' : 'gray'}>
@@ -52,7 +51,7 @@ export function ConnectionPanel({ clientId }: { clientId: string }) {
           <Button
             variant="secondary"
             className="ml-auto py-1 text-xs"
-            onClick={async () => { await api.post(`/api/whatsapp/connections/${clientId}/baileys/connect`); load() }}
+            onClick={async () => { await api.post('/api/whatsapp/connections/baileys/connect'); load() }}
           >
             Conectar
           </Button>
@@ -61,7 +60,7 @@ export function ConnectionPanel({ clientId }: { clientId: string }) {
           <Button
             variant="ghost"
             className="ml-auto py-1 text-xs"
-            onClick={async () => { await api.post(`/api/whatsapp/connections/${clientId}/baileys/disconnect`); load() }}
+            onClick={async () => { await api.post('/api/whatsapp/connections/baileys/disconnect'); load() }}
           >
             Desconectar
           </Button>

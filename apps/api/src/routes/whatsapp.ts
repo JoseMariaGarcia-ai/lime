@@ -2,32 +2,26 @@ import { Router } from 'express'
 import { query, queryOne } from '../lib/db'
 import { decryptSecret } from '../lib/crypto'
 import { sendViaYCloud } from '../lib/ycloud'
-import { recordInboundMessage, recordOutboundMessage, ensureConversation } from '../lib/whatsappCore'
-import { connectClientBaileys, disconnectClientBaileys, sendViaBaileys } from '../services/baileysManager'
+import { recordInboundMessage, recordOutboundMessage, findClientIdByPhone } from '../lib/whatsappCore'
+import { connectAccountBaileys, disconnectAccountBaileys, sendViaBaileys } from '../services/baileysManager'
 
 const router = Router()
 export const webhookRouter = Router()
 
-// GET /api/whatsapp/clients — clientes con su total de mensajes sin leer,
-// para el selector del panel.
-router.get('/clients', async (_req, res) => {
-  try {
-    const data = await query(
-      `SELECT c.id, c.nombre, c.empresa, c.whatsapp_provider,
-         COALESCE((SELECT SUM(wc.unread_count) FROM whatsapp_conversations wc WHERE wc.client_id = c.id), 0) AS unread
-       FROM clients c ORDER BY c.nombre`
-    )
-    return res.json(data)
-  } catch (err: any) { return res.status(500).json({ error: err.message }) }
-})
-
+// GET /api/whatsapp/conversations?filter=unread|pending — bandeja ÚNICA de
+// todas las conversaciones (ya no hay que elegir cliente antes), con el
+// nombre del cliente si el teléfono se pudo resolver a uno.
 router.get('/conversations', async (req, res) => {
   try {
-    const { clientId } = req.query
-    if (!clientId) return res.status(400).json({ error: 'clientId es requerido' })
+    const { filter } = req.query
+    const where =
+      filter === 'unread' ? 'WHERE wc.unread_count > 0' :
+      filter === 'pending' ? 'WHERE wc.is_pending = true' : ''
     const data = await query(
-      'SELECT * FROM whatsapp_conversations WHERE client_id = $1 ORDER BY last_message_at DESC NULLS LAST',
-      [clientId]
+      `SELECT wc.*, c.nombre AS client_nombre, c.empresa AS client_empresa
+       FROM whatsapp_conversations wc LEFT JOIN clients c ON c.id = wc.client_id
+       ${where}
+       ORDER BY wc.last_message_at DESC NULLS LAST`
     )
     return res.json(data)
   } catch (err: any) { return res.status(500).json({ error: err.message }) }
@@ -44,62 +38,77 @@ router.get('/conversations/:id/messages', async (req, res) => {
   } catch (err: any) { return res.status(500).json({ error: err.message }) }
 })
 
-// GET /api/whatsapp/connections/:clientId — estado de YCloud (configurado o
-// no) y de Baileys (desconectado/conectando con QR/conectado) para un cliente.
-router.get('/connections/:clientId', async (req, res) => {
+// POST /api/whatsapp/conversations/:id/pending — { pending: boolean } —
+// marcar/desmarcar como pendiente de gestión, independiente de si está leída.
+router.post('/conversations/:id/pending', async (req, res) => {
   try {
-    const client = await queryOne<any>('SELECT * FROM clients WHERE id = $1', [req.params.clientId])
-    if (!client) return res.status(404).json({ error: 'Cliente no encontrado' })
-    const baileysConn = await queryOne(
-      `SELECT status, qr_code, last_error, updated_at FROM whatsapp_connections WHERE client_id = $1 AND provider = 'baileys'`,
-      [req.params.clientId]
+    const row = await queryOne(
+      'UPDATE whatsapp_conversations SET is_pending = $1 WHERE id = $2 RETURNING *',
+      [!!req.body.pending, req.params.id]
     )
-    const ycloudConfigured = !!(client.ycloud_api_key_enc && client.ycloud_wa_number)
+    if (!row) return res.status(404).json({ error: 'Conversación no encontrada' })
+    return res.json(row)
+  } catch (err: any) { return res.status(500).json({ error: err.message }) }
+})
+
+// GET /api/whatsapp/connections — estado GLOBAL de la cuenta: qué proveedor
+// está elegido, si YCloud está configurado, y el estado de Baileys si es
+// ese el proveedor activo.
+router.get('/connections', async (_req, res) => {
+  try {
+    const settings = await queryOne<any>('SELECT * FROM account_settings WHERE id = 1')
+    const baileysConn = await queryOne(
+      `SELECT status, qr_code, last_error, updated_at FROM whatsapp_connections WHERE provider = 'baileys'`
+    )
     return res.json({
-      provider: client.whatsapp_provider,
-      ycloud: { configured: ycloudConfigured },
+      provider: settings.whatsapp_provider,
+      ycloud: { configured: !!(settings.ycloud_api_key_enc && settings.ycloud_wa_number) },
       baileys: baileysConn ?? { status: 'desconectado', qr_code: null, last_error: null },
     })
   } catch (err: any) { return res.status(500).json({ error: err.message }) }
 })
 
-router.post('/connections/:clientId/baileys/connect', async (req, res) => {
+router.post('/connections/baileys/connect', async (_req, res) => {
   try {
-    connectClientBaileys(req.params.clientId).catch(err =>
-      console.error(`[whatsapp] fallo iniciando Baileys para cliente ${req.params.clientId}:`, err.message))
+    connectAccountBaileys().catch(err =>
+      console.error('[whatsapp] fallo iniciando Baileys:', err.message))
     return res.status(202).json({ ok: true, message: 'Conectando — consulta el QR en unos segundos' })
   } catch (err: any) { return res.status(500).json({ error: err.message }) }
 })
 
-router.post('/connections/:clientId/baileys/disconnect', async (req, res) => {
+router.post('/connections/baileys/disconnect', async (_req, res) => {
   try {
-    await disconnectClientBaileys(req.params.clientId)
+    await disconnectAccountBaileys()
     return res.json({ ok: true })
   } catch (err: any) { return res.status(500).json({ error: err.message }) }
 })
 
-// POST /api/whatsapp/send — { clientId, phone, body, contactName? }
+// POST /api/whatsapp/send — { conversationId, body } — responde dentro de
+// una conversación ya existente de la bandeja; el proveedor real de envío
+// (YCloud/Baileys) se decide por la configuración GLOBAL de la cuenta.
 router.post('/send', async (req, res) => {
   try {
-    const { clientId, phone, body, contactName } = req.body
-    if (!clientId || !phone || !body) return res.status(400).json({ error: 'clientId, phone y body son requeridos' })
+    const { conversationId, body } = req.body
+    if (!conversationId || !body) return res.status(400).json({ error: 'conversationId y body son requeridos' })
 
-    const client = await queryOne<any>('SELECT * FROM clients WHERE id = $1', [clientId])
-    if (!client) return res.status(404).json({ error: 'Cliente no encontrado' })
+    const conversation = await queryOne<{ phone: string }>(
+      'SELECT phone FROM whatsapp_conversations WHERE id = $1', [conversationId]
+    )
+    if (!conversation) return res.status(404).json({ error: 'Conversación no encontrada' })
 
-    const conversationId = await ensureConversation(clientId, phone, client.whatsapp_provider, contactName ?? null)
+    const settings = await queryOne<any>('SELECT * FROM account_settings WHERE id = 1')
 
     try {
       let providerMessageId: string | null = null
-      if (client.whatsapp_provider === 'baileys') {
-        providerMessageId = await sendViaBaileys(clientId, phone, body)
+      if (settings.whatsapp_provider === 'baileys') {
+        providerMessageId = await sendViaBaileys(conversation.phone, body)
       } else {
-        const apiKey = decryptSecret(client.ycloud_api_key_enc)
-        const waNumber = client.ycloud_wa_number
+        const apiKey = decryptSecret(settings.ycloud_api_key_enc)
+        const waNumber = settings.ycloud_wa_number
         if (!apiKey || !waNumber) {
-          return res.status(400).json({ error: 'Este cliente no tiene configurado YCloud (clave de API y número) en su ficha' })
+          return res.status(400).json({ error: 'YCloud no está configurado — añade la clave de API y el número en Configuración' })
         }
-        providerMessageId = await sendViaYCloud(apiKey, waNumber, phone, body)
+        providerMessageId = await sendViaYCloud(apiKey, waNumber, conversation.phone, body)
       }
       const message = await recordOutboundMessage(conversationId, body, 'sent', providerMessageId)
       return res.status(201).json(message)
@@ -110,23 +119,21 @@ router.post('/send', async (req, res) => {
   } catch (err: any) { return res.status(500).json({ error: err.message }) }
 })
 
-// POST /api/whatsapp-webhook/:clientId — webhook público de YCloud (formato
-// WhatsApp Cloud API que YCloud replica, ver nota en ConsentsPro
-// whatsapp.ts). Cada cliente de Lime que use YCloud necesita configurar esta
-// URL (con su clientId) como webhook en su cuenta de YCloud.
-webhookRouter.post('/:clientId', async (req, res) => {
+// POST /api/whatsapp-webhook — webhook público de YCloud (formato WhatsApp
+// Cloud API que YCloud replica). Un único número/cuenta de YCloud para todo
+// Lime — el cliente al que pertenece el mensaje se resuelve comparando el
+// teléfono remitente con clients.telefono; si no coincide con ninguno, la
+// conversación queda sin cliente asignado (no se pierde el mensaje).
+webhookRouter.post('/', async (req, res) => {
   try {
-    const { clientId } = req.params
     const payload = req.body
     const msg = payload?.whatsappInboundMessage ?? payload
     const phone = msg?.from
     const text = msg?.text?.body ?? msg?.body ?? ''
     if (!phone) return res.status(200).json({ ok: true })
 
-    const client = await queryOne('SELECT id FROM clients WHERE id = $1', [clientId])
-    if (!client) return res.status(200).json({ ok: true }) // clientId desconocido — se ignora sin dar pistas
-
     res.status(200).json({ ok: true }) // responde ya a YCloud, evita reintentos por timeout
+    const clientId = await findClientIdByPhone(phone)
     await recordInboundMessage(clientId, phone, text, 'ycloud', msg?.id ?? null)
     return
   } catch (err: any) {

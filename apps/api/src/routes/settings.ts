@@ -34,11 +34,13 @@ router.put('/', async (req, res) => {
 
     const row = await queryOne(
       `UPDATE account_settings SET
-        ycloud_api_key_enc = $1, ycloud_wa_number = $2, openrouter_api_key_enc = $3,
-        claude_api_key_enc = $4, n8n_url = $5, n8n_api_key_enc = $6, custom_fields = $7,
+        whatsapp_provider = $1,
+        ycloud_api_key_enc = $2, ycloud_wa_number = $3, openrouter_api_key_enc = $4,
+        claude_api_key_enc = $5, n8n_url = $6, n8n_api_key_enc = $7, custom_fields = $8,
         updated_at = NOW()
        WHERE id = 1 RETURNING *`,
       [
+        b.whatsapp_provider ?? existing.whatsapp_provider,
         resolveKey(b.ycloud_api_key, existing.ycloud_api_key_enc),
         b.ycloud_wa_number ?? existing.ycloud_wa_number,
         resolveKey(b.openrouter_api_key, existing.openrouter_api_key_enc),

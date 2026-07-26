@@ -66,7 +66,6 @@ export function Clients() {
                 <th className="px-4 py-3">Empresa</th>
                 <th className="px-4 py-3">Teléfono</th>
                 <th className="px-4 py-3">Email</th>
-                <th className="px-4 py-3">WhatsApp</th>
                 <th className="px-4 py-3">Claves configuradas</th>
               </tr>
             </thead>
@@ -82,16 +81,10 @@ export function Clients() {
                   <td className="px-4 py-3 text-navy-300">{c.telefono ?? '—'}</td>
                   <td className="px-4 py-3 text-navy-300">{c.email ?? '—'}</td>
                   <td className="px-4 py-3">
-                    <Badge color={c.whatsapp_provider === 'baileys' ? 'teal' : 'lime'}>
-                      {c.whatsapp_provider === 'baileys' ? 'Baileys' : 'YCloud'}
-                    </Badge>
-                  </td>
-                  <td className="px-4 py-3">
                     <div className="flex gap-1">
                       {c.has_n8n_key && <Badge color="gray">n8n</Badge>}
                       {c.has_openrouter_key && <Badge color="gray">OpenRouter</Badge>}
                       {c.has_claude_key && <Badge color="gray">Claude</Badge>}
-                      {c.has_ycloud_key && <Badge color="gray">YCloud</Badge>}
                     </div>
                   </td>
                 </tr>
