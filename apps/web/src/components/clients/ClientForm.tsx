@@ -78,6 +78,36 @@ export function ClientForm({
       </div>
 
       <div className="border-t border-navy-700 pt-4">
+        <h3 className="mb-3 text-sm font-semibold text-navy-200">Facturación</h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <Label>Importe de implementación (€)</Label>
+            <Input
+              type="number" step="0.01" min="0"
+              value={values.implementation_amount ?? ''}
+              onChange={e => set('implementation_amount', e.target.value === '' ? null : Number(e.target.value))}
+            />
+          </div>
+          <div>
+            <Label>Importe mensual (€)</Label>
+            <Input
+              type="number" step="0.01" min="0"
+              value={values.monthly_amount ?? ''}
+              onChange={e => set('monthly_amount', e.target.value === '' ? null : Number(e.target.value))}
+            />
+          </div>
+          <div>
+            <Label>Fecha de renovación</Label>
+            <Input
+              type="date"
+              value={values.renewal_date ?? ''}
+              onChange={e => set('renewal_date', e.target.value || null)}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="border-t border-navy-700 pt-4">
         <h3 className="mb-3 text-sm font-semibold text-navy-200">Claves de API y servidor</h3>
         <div className="space-y-3">
           <div>

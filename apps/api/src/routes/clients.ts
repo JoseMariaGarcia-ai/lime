@@ -54,13 +54,15 @@ router.post('/', async (req, res) => {
     const row = await queryOne(
       `INSERT INTO clients (
         nombre, apellidos, empresa, telefono, email, notas,
-        n8n_url, n8n_api_key_enc, openrouter_api_key_enc, claude_api_key_enc, custom_fields
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        n8n_url, n8n_api_key_enc, openrouter_api_key_enc, claude_api_key_enc, custom_fields,
+        implementation_amount, monthly_amount, renewal_date
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
       RETURNING *`,
       [
         b.nombre, b.apellidos ?? null, b.empresa ?? null, b.telefono ?? null, b.email ?? null, b.notas ?? null,
         b.n8n_url ?? null, encryptSecretOrNull(b.n8n_api_key), encryptSecretOrNull(b.openrouter_api_key),
         encryptSecretOrNull(b.claude_api_key), JSON.stringify(b.custom_fields ?? {}),
+        b.implementation_amount ?? null, b.monthly_amount ?? null, b.renewal_date ?? null,
       ]
     )
 
@@ -97,8 +99,9 @@ router.put('/:id', async (req, res) => {
       `UPDATE clients SET
         nombre = $1, apellidos = $2, empresa = $3, telefono = $4, email = $5, notas = $6,
         n8n_url = $7, n8n_api_key_enc = $8, openrouter_api_key_enc = $9, claude_api_key_enc = $10,
-        custom_fields = $11, updated_at = NOW()
-       WHERE id = $12 RETURNING *`,
+        custom_fields = $11, implementation_amount = $12, monthly_amount = $13, renewal_date = $14,
+        updated_at = NOW()
+       WHERE id = $15 RETURNING *`,
       [
         b.nombre ?? existing.nombre, b.apellidos ?? existing.apellidos, b.empresa ?? existing.empresa,
         b.telefono ?? existing.telefono, b.email ?? existing.email, b.notas ?? existing.notas,
@@ -107,6 +110,9 @@ router.put('/:id', async (req, res) => {
         resolveKey(b.openrouter_api_key, existing.openrouter_api_key_enc),
         resolveKey(b.claude_api_key, existing.claude_api_key_enc),
         JSON.stringify(b.custom_fields ?? existing.custom_fields ?? {}),
+        b.implementation_amount ?? existing.implementation_amount,
+        b.monthly_amount ?? existing.monthly_amount,
+        b.renewal_date ?? existing.renewal_date,
         req.params.id,
       ]
     )

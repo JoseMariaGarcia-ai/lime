@@ -33,6 +33,9 @@ export interface Client extends ClientListItem {
   claude_api_key: string | null
   custom_fields: Record<string, string>
   extra_api_keys: ClientApiKey[]
+  implementation_amount: number | null
+  monthly_amount: number | null
+  renewal_date: string | null
 }
 
 export interface Appointment {
